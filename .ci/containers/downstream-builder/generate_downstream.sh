@@ -111,22 +111,31 @@ if [ "$REPO" == "terraform" ]; then
     make generate
 fi
 
+PR_NUMBER=$(curl -L -s -H "Authorization: token ${GITHUB_TOKEN}" \
+    "https://api.github.com/repos/GoogleCloudPlatform/magic-modules/pulls?state=closed&base=master&sort=updated&direction=desc" | \
+    jq -r ".[] | if .merge_commit_sha == \"$REFERENCE\" then .number else empty end")
+
 git config --local user.name "Modular Magician"
 git config --local user.email "magic-modules@google.com"
 git add .
 git checkout -b $BRANCH
 
+# Add the author of the PR in MM as Co-author for downstream commits.
+# https://docs.github.com/en/free-pro-team@latest/github/committing-changes-to-your-project/creating-a-commit-with-multiple-authors
+
+COMMIT_AUTHOR_DATA=$(curl -L -s -H "Authorization: token ${GITHUB_TOKEN}" \
+    "https://api.github.com/repos/GoogleCloudPlatform/magic-modules/pulls/$PR_NUMBER/commits" | \
+    jq .[-1].commit.author)
+
+COMMIT_MESSAGE="$COMMIT_MESSAGE \n\n\nCo-authored-by: $(echo ${COMMIT_AUTHOR_DATA} | jq .name -r ) <$(echo ${COMMIT_AUTHOR_DATA} | jq .email -r )>"
 COMMITTED=true
-git commit --signoff -m "$COMMIT_MESSAGE" || COMMITTED=false
+git commit --signoff -m "$(echo -e $COMMIT_MESSAGE)" || COMMITTED=false
 
 CHANGELOG=false
 if [ "$REPO" == "terraform" ]; then
   CHANGELOG=true
 fi
 
-PR_NUMBER=$(curl -L -s -H "Authorization: token ${GITHUB_TOKEN}" \
-    "https://api.github.com/repos/GoogleCloudPlatform/magic-modules/pulls?state=closed&base=master&sort=updated&direction=desc" | \
-    jq -r ".[] | if .merge_commit_sha == \"$REFERENCE\" then .number else empty end")
 if [ "$COMMITTED" == "true" ] && [ "$COMMAND" == "downstream" ] && [ "$CHANGELOG" == "true" ]; then
     # Add the changelog entry!
     mkdir -p .changelog/
